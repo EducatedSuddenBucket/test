@@ -155,6 +155,3 @@ server.listen(25565, () => {
     console.log('Minecraft ping server started on port 25565');
 });
 
-process.on('SIGINT', () => {
-    server.close(() => process.exit(0));
-});
