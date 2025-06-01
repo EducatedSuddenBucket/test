@@ -64,7 +64,7 @@ const server = net.createServer((socket) => {
     ]);
 
     socket.write(fullPacket, () => {
-      socket.end();
+      socket.destroy();
     });
   });
 
