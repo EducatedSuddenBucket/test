@@ -1,14 +1,23 @@
 const net = require('net');
 
-// Server configuration
-const SERVER_PORT = 25565;
-const SERVER_VERSION = '1.20.1';
-const PROTOCOL_VERSION = 763;
-const MAX_PLAYERS = 20;
-const ONLINE_PLAYERS = 0;
-const SERVER_DESCRIPTION = 'A Minecraft Ping-Only Server';
+const SERVER_STATUS = {
+    version: {
+        name: 'HeatBlock 1.20.1',
+        protocol: 763
+    },
+    players: {
+        max: 20,
+        online: 1,
+        sample: [{
+            name: "EducatedSuddenBucket",
+            id: "00000000-0000-0000-0000-000000000000"
+        }]
+    },
+    description: {
+        text: 'https://heatblock.esb.is-a.dev/'
+    }
+};
 
-// Utility functions for Minecraft packet handling
 function writeVarInt(value) {
     const bytes = [];
     while (value >= 0x80) {
@@ -26,14 +35,14 @@ function readVarInt(buffer, offset = 0) {
     
     do {
         if (offset + position >= buffer.length) {
-            throw new Error('VarInt is too long');
+            return null;
         }
         
         currentByte = buffer[offset + position];
         value |= (currentByte & 0x7F) << (position * 7);
         
         if (position++ >= 5) {
-            throw new Error('VarInt is too long');
+            return null;
         }
     } while ((currentByte & 0x80) !== 0);
     
@@ -46,70 +55,6 @@ function writeString(str) {
     return Buffer.concat([lengthBuffer, strBuffer]);
 }
 
-function createStatusResponse() {
-    const response = {
-        version: {
-            name: SERVER_VERSION,
-            protocol: PROTOCOL_VERSION
-        },
-        players: {
-            max: MAX_PLAYERS,
-            online: ONLINE_PLAYERS,
-            sample: []
-        },
-        description: {
-            text: SERVER_DESCRIPTION
-        }
-    };
-    
-    return JSON.stringify(response);
-}
-
-function handleHandshake(data) {
-    try {
-        let offset = 0;
-        
-        // Read packet length
-        const packetLength = readVarInt(data, offset);
-        offset += packetLength.length;
-        
-        // Read packet ID (should be 0x00 for handshake)
-        const packetId = readVarInt(data, offset);
-        offset += packetId.length;
-        
-        if (packetId.value !== 0x00) {
-            return null;
-        }
-        
-        // Read protocol version
-        const protocolVersion = readVarInt(data, offset);
-        offset += protocolVersion.length;
-        
-        // Read server address length and address
-        const addressLength = readVarInt(data, offset);
-        offset += addressLength.length;
-        const address = data.slice(offset, offset + addressLength.value).toString('utf8');
-        offset += addressLength.value;
-        
-        // Read server port
-        const port = data.readUInt16BE(offset);
-        offset += 2;
-        
-        // Read next state
-        const nextState = readVarInt(data, offset);
-        
-        return {
-            protocolVersion: protocolVersion.value,
-            address,
-            port,
-            nextState: nextState.value
-        };
-    } catch (error) {
-        console.log('Error parsing handshake:', error.message);
-        return null;
-    }
-}
-
 function createPacket(packetId, data = Buffer.alloc(0)) {
     const packetIdBuffer = writeVarInt(packetId);
     const packetData = Buffer.concat([packetIdBuffer, data]);
@@ -117,103 +62,107 @@ function createPacket(packetId, data = Buffer.alloc(0)) {
     return Buffer.concat([packetLength, packetData]);
 }
 
-// Create the server
-const server = net.createServer((socket) => {
-    console.log(`Client connected: ${socket.remoteAddress}:${socket.remotePort}`);
+function processPackets(buffer, state, socket) {
+    let offset = 0;
     
-    let state = 'handshake';
+    while (offset < buffer.length) {
+        const packetLengthResult = readVarInt(buffer, offset);
+        if (!packetLengthResult) break;
+        
+        const packetLength = packetLengthResult.value;
+        const totalPacketSize = packetLengthResult.length + packetLength;
+        
+        if (buffer.length < offset + totalPacketSize) break;
+        
+        const packetData = buffer.slice(offset + packetLengthResult.length, offset + totalPacketSize);
+        const packetIdResult = readVarInt(packetData, 0);
+        
+        if (!packetIdResult) {
+            offset += totalPacketSize;
+            continue;
+        }
+        
+        if (state.current === 'handshake' && packetIdResult.value === 0x00) {
+            let dataOffset = packetIdResult.length;
+            
+            const protocolVersion = readVarInt(packetData, dataOffset);
+            if (!protocolVersion) break;
+            dataOffset += protocolVersion.length;
+            
+            const addressLength = readVarInt(packetData, dataOffset);
+            if (!addressLength) break;
+            dataOffset += addressLength.length;
+            
+            if (packetData.length < dataOffset + addressLength.value + 2) break;
+            dataOffset += addressLength.value + 2;
+            
+            const nextState = readVarInt(packetData, dataOffset);
+            if (!nextState) break;
+            
+            if (nextState.value === 1) {
+                state.current = 'status';
+            } else {
+                socket.end();
+                return buffer.length;
+            }
+        }
+        else if (state.current === 'status') {
+            if (packetIdResult.value === 0x00) {
+                const responseData = writeString(JSON.stringify(SERVER_STATUS));
+                const responsePacket = createPacket(0x00, responseData);
+                socket.write(responsePacket);
+            }
+            else if (packetIdResult.value === 0x01) {
+                const pingData = packetData.slice(packetIdResult.length);
+                const pongPacket = createPacket(0x01, pingData);
+                socket.write(pongPacket);
+                socket.end();
+                return buffer.length;
+            }
+        }
+        
+        offset += totalPacketSize;
+    }
+    
+    return offset;
+}
+
+const server = net.createServer((socket) => {
+    let state = { current: 'handshake' };
     let buffer = Buffer.alloc(0);
+    
+    socket.setTimeout(5000);
     
     socket.on('data', (data) => {
         buffer = Buffer.concat([buffer, data]);
         
         try {
-            if (state === 'handshake') {
-                const handshake = handleHandshake(buffer);
-                if (handshake) {
-                    console.log('Handshake received:', handshake);
-                    
-                    if (handshake.nextState === 1) {
-                        state = 'status';
-                        buffer = Buffer.alloc(0);
-                    } else if (handshake.nextState === 2) {
-                        // Login state - we don't handle this, just close
-                        console.log('Login attempt - closing connection');
-                        socket.end();
-                        return;
-                    }
-                }
-            } else if (state === 'status') {
-                // Check if we have enough data for a packet
-                if (buffer.length >= 1) {
-                    try {
-                        const packetLength = readVarInt(buffer, 0);
-                        
-                        if (buffer.length >= packetLength.length + packetLength.value) {
-                            const packetId = readVarInt(buffer, packetLength.length);
-                            
-                            if (packetId.value === 0x00) {
-                                // Status Request
-                                console.log('Status request received');
-                                const statusResponse = createStatusResponse();
-                                const responseData = writeString(statusResponse);
-                                const responsePacket = createPacket(0x00, responseData);
-                                socket.write(responsePacket);
-                                
-                            } else if (packetId.value === 0x01) {
-                                // Ping Request
-                                console.log('Ping request received');
-                                const pingData = buffer.slice(packetLength.length + packetId.length, packetLength.length + packetLength.value);
-                                const pongPacket = createPacket(0x01, pingData);
-                                socket.write(pongPacket);
-                                
-                                // Close connection after pong
-                                setTimeout(() => {
-                                    socket.end();
-                                }, 100000);
-                            }
-                            
-                            // Remove processed packet from buffer
-                            buffer = buffer.slice(packetLength.length + packetLength.value);
-                        }
-                    } catch (error) {
-                        console.log('Error processing status packet:', error.message);
-                        socket.end();
-                    }
-                }
+            const processed = processPackets(buffer, state, socket);
+            if (processed > 0) {
+                buffer = buffer.slice(processed);
             }
         } catch (error) {
-            console.log('Error processing data:', error.message);
-            socket.end();
+            socket.destroy();
         }
     });
     
-    socket.on('end', () => {
-        console.log(`Client disconnected: ${socket.remoteAddress}:${socket.remotePort}`);
+    socket.on('timeout', () => {
+        socket.destroy();
     });
     
-    socket.on('error', (error) => {
-        console.log(`Socket error: ${error.message}`);
+    socket.on('error', () => {
+        socket.destroy();
     });
 });
 
-// Start the server
-server.listen(SERVER_PORT, () => {
-    console.log(`Minecraft ping-only server listening on port ${SERVER_PORT}`);
-    console.log(`Server version: ${SERVER_VERSION} (Protocol ${PROTOCOL_VERSION})`);
-    console.log(`Max players: ${MAX_PLAYERS}`);
-    console.log(`Description: ${SERVER_DESCRIPTION}`);
+server.listen(25565, () => {
+    console.log('Minecraft ping server started on port 25565');
 });
 
 server.on('error', (error) => {
-    console.error(`Server error: ${error.message}`);
+    console.error('Server error:', error.message);
 });
 
-// Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\nShutting down server...');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+    server.close(() => process.exit(0));
 });
