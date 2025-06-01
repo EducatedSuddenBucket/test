@@ -1,26 +1,3 @@
-/*
-MIT License
-
-Copyright (c) 2024 PiglinJS
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
 const net = require('net');
 
 const SERVER_PORT = 25565;
@@ -30,24 +7,25 @@ function writeVarInt(value) {
   while (true) {
     let temp = value & 0b01111111;
     value >>>= 7;
-    if (value != 0) {
+    if (value !== 0) {
       temp |= 0b10000000;
     }
     bytes.push(temp);
-    if (value == 0) {
-      break;
-    }
+    if (value === 0) break;
   }
   return Buffer.from(bytes);
 }
 
 const server = net.createServer((socket) => {
-  const start = Date.now();
+  // 1. Record the time when the connection is made:
+  const startTime = Date.now();
 
   socket.once('data', () => {
-    const latency = Date.now() - start;
+    // 2. Compute latency (in ms):
+    const latency = Date.now() - startTime;
 
-    const response = JSON.stringify({
+    // 3. Build a fresh JSON‐object (so we can inject "latency"):
+    const responseObj = {
       version: {
         name: "https://educatedsuddenbucket.is-a.dev/",
         protocol: 999
@@ -63,19 +41,27 @@ const server = net.createServer((socket) => {
         ]
       },
       description: {
-        text: " Made By EducatedSuddenBucket Visit: https://educatedsuddenbucket.is-a.dev/"
+        text: "Made By EducatedSuddenBucket Visit: https://educatedsuddenbucket.is-a.dev/"
       },
-      latency: `${latency}ms`
-    });
+      // 4. Inject the computed latency (in milliseconds):
+      latency: latency
+    };
 
-    const jsonResponse = Buffer.from(response);
+    const jsonResponse = Buffer.from(JSON.stringify(responseObj));
     const lengthPrefix = writeVarInt(jsonResponse.length);
+
+    // Minecraft status packet (0x00) + length of JSON + JSON
     const packet = Buffer.concat([
-      writeVarInt(0),
-      lengthPrefix,
+      writeVarInt(0),       // packet ID = 0 (status response)
+      lengthPrefix,         // VarInt length of JSON
       jsonResponse
     ]);
-    const fullPacket = Buffer.concat([writeVarInt(packet.length), packet]);
+
+    // Prepend full packet length
+    const fullPacket = Buffer.concat([
+      writeVarInt(packet.length),
+      packet
+    ]);
 
     socket.write(fullPacket, () => {
       socket.end();
