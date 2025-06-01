@@ -64,13 +64,13 @@ const server = net.createServer((socket) => {
     ]);
 
     socket.write(fullPacket, () => {
-      socket.destroy();
+      socket.end();
     });
   });
 
   socket.on('error', (err) => {
     console.error('Socket error:', err);
-    socket.destroy();
+    socket.end();
   });
 });
 
