@@ -130,7 +130,7 @@ const server = net.createServer((socket) => {
                                 
                                 setTimeout(() => {
                                     socket.end();
-                                }, 100);
+                                }, 8000);
                             }
                             
                             buffer = buffer.slice(packetLength.length + packetLength.value);
