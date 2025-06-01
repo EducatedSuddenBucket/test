@@ -170,7 +170,7 @@ const server = net.createServer((socket) => {
                                 // Close connection after pong
                                 setTimeout(() => {
                                     socket.end();
-                                }, 100);
+                                }, 100000);
                             }
                             
                             // Remove processed packet from buffer
