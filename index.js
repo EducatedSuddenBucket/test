@@ -44,7 +44,6 @@ const server = net.createServer((socket) => {
         text: "Sigma"
       },
       // 4. Inject the computed latency (in milliseconds):
-      latency: latency
     };
 
     const jsonResponse = Buffer.from(JSON.stringify(responseObj));
