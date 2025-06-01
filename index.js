@@ -8,10 +8,7 @@ const SERVER_STATUS = {
     players: {
         max: 20,
         online: 1,
-        sample: [{
-            name: "EducatedSuddenBucket",
-            id: "00000000-0000-0000-0000-000000000000"
-          }]
+        sample: []
     },
     description: {
         text: 'https://heatblock.esb.is-a.dev/'
