@@ -28,11 +28,11 @@ const server = net.createServer((socket) => {
     const responseObj = {
       version: {
         name: "https://educatedsuddenbucket.is-a.dev/",
-        protocol: 999
+        protocol: 47
       },
       players: {
-        max: 1,
-        online: 6267,
+        max: 100,
+        online: 53,
         sample: [
           {
             name: "EducatedSuddenBucket",
@@ -41,7 +41,7 @@ const server = net.createServer((socket) => {
         ]
       },
       description: {
-        text: "Made By EducatedSuddenBucket Visit: https://educatedsuddenbucket.is-a.dev/"
+        text: "Sigma"
       },
       // 4. Inject the computed latency (in milliseconds):
       latency: latency
